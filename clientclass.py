@@ -1,0 +1,59 @@
+import socket
+import rsa
+import pickle
+import hashlib
+from myaes import MYAES
+from errorclass import AuthenticationError
+
+
+class Client:
+
+    def __init__(self):
+        # 产生非对称密钥
+        self.asyKey = rsa.newkeys(2048)
+        # 公钥和私钥
+        self.publicKey = self.asyKey[0]
+        self.privateKey = self.asyKey[1]
+
+
+    def link_server(self, addr=('localhost', 8080)):
+        # 创建socket通信对象
+        # 默认使用AF_INET协议族，即ipv4地址和端口号的组合以及tcp协议
+        clientSocket = socket.socket()
+        # 默认连接服务器地址为本机ip和8080端口
+        clientSocket.connect(addr)
+
+        # 向服务器传递公钥，和该公钥字符串化后的sha256值
+        print("-----正在向服务器传送公钥")
+        sendKey = pickle.dumps(self.publicKey)
+        sendKeySha256 = hashlib.sha256(sendKey).hexdigest()
+        clientSocket.send(pickle.dumps((sendKey, sendKeySha256)))
+
+        # 接受服务器传递的密钥并进行解密
+        symKey, symKeySha256 = pickle.loads(clientSocket.recv(1024))
+        if hashlib.sha256(symKey).hexdigest() != symKeySha256:
+            raise AuthenticationError("-----密钥被篡改！")
+        else:
+            symKey1 = pickle.loads(rsa.decrypt(symKey, self.privateKey))
+            print("-----密钥交换完成")
+
+
+
+        # 初始化加密对象
+        aes = MYAES()
+        while True:
+            sendData = input("输入你要发送的消息：")
+            if(sendData == 'quit'):
+                clientSocket.close()
+                break
+            en_sendData = aes.myaes_encrypt(sendData, symKey1)
+            clientSocket.send(bytes(en_sendData))
+            print("-----消息发送成功，等待回应...")
+
+            en_recvData = clientSocket.recv(1024)
+            plaintext = aes.myaes_decrypt(en_recvData, symKey1)
+            print('接收到服务器传来的消息：' + plaintext)
+
+
+
+
